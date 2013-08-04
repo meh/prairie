@@ -5,7 +5,10 @@ defmodule Wizardchan do
     def get(uri, headers // []) do
       case :httpc.request(to_binary(uri) |> binary_to_list) do
         { :ok, { code, headers, body } } ->
-          { :ok, Response[code: code, headers: headers(headers), body: body(body)] }
+          headers = headers(headers)
+          body    = body(body, headers)
+
+          { :ok, Response[code: code, headers: headers, body: body] }
 
         { :error, _ } = error ->
           error
@@ -28,8 +31,14 @@ defmodule Wizardchan do
       end
     end
 
-    defp body(body) do
-      list_to_binary(body)
+    defp body(body, headers) do
+      case headers["content-type"] do
+        "text/html" <> _ ->
+          String.from_char_list!(body)
+
+        _ ->
+          list_to_binary(body)
+      end
     end
   end
 

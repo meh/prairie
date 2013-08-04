@@ -40,7 +40,7 @@ defmodule Wizardchan do
   end
 
   def server do
-    { "localhost", 70 }
+    { "localhost", 8080 }
   end
 
   @host "http://wizardchan.org"
@@ -51,22 +51,22 @@ defmodule Wizardchan do
     { :meta, "Meta" },
     { :b,    "Random" } ]
 
-  def list do
+  def list(_) do
     Enum.map @boards, fn { name, description } ->
       { :directory, "#{description} - /#{name}", "1/#{name}" }
     end
   end
 
   Enum.each @boards, fn { name, _ } ->
-    def :list, quote(do: ["/" <> unquote(to_binary(name))]), [], do: (quote do
-      catalog_for(unquote(name)) |> Enum.map fn [path, summary] ->
+    def :list, quote(do: ["/" <> unquote(to_binary(name)), _]), [], do: (quote do
+      catalog_for(unquote(name)) |> Enum.map fn { path, summary } ->
         [_, id] = Regex.run(%r/(\d+).html/, path)
 
         { :directory, "#{unquote(name)}/#{id}", "1/#{unquote(name)}/#{id}" }
       end
     end)
 
-    def :list, quote(do: ["/" <> unquote(to_binary(name)) <> "/" <> id]), [], do: (quote do
+    def :list, quote(do: ["/" <> unquote(to_binary(name)) <> "/" <> id, _]), [], do: (quote do
       thread_for(unquote(name), id) |> Enum.map(fn { post_id, { img, _ } } ->
         pages = [{ :file, "/#{unquote(name)}/#{id}/#{post_id}", "0/#{unquote(name)}/#{id}/#{post_id}" }]
 
@@ -79,7 +79,7 @@ defmodule Wizardchan do
     end)
   end
 
-  def fetch(resource, :file) do
+  def fetch(resource, [{ :type, :file } | _]) do
     [_, board, thread_id, post_id] = String.split(resource, "/")
 
     { _, body } = thread_for(board, thread_id)[post_id]
@@ -87,7 +87,7 @@ defmodule Wizardchan do
     { :file, unescape(body) }
   end
 
-  def fetch(resource, :image) do
+  def fetch(resource, [{ :type, :image } | _]) do
     [_, board, thread_id, post_id] = String.split(resource, "/")
 
     { image, _ } = thread_for(board, thread_id)[post_id]
@@ -98,14 +98,16 @@ defmodule Wizardchan do
   defp catalog_for(board) do
     catalog = HTTP.get!("#{@host}/#{board}/catalog.html")
     threads = %r{<div class="thread"><a href="(.*?)">.*?</a>.*?</strong><br/>(.*?)</span>}
-      |> Regex.scan(catalog.body)
+      |> Regex.scan(catalog.body) |> Enum.map(fn [_, path, summary] ->
+        { path, summary }
+      end)
   end
 
   defp thread_for(board, thread_id) do
     thread = HTTP.get!("#{@host}/#{board}/res/#{thread_id}.html")
 
     posts = %r{<p class="intro" id="(\d+)">.*?(?:<a href=".*?/src/(.*?)")?<div class="body">(.*?)</div>}
-      |> Regex.scan(thread.body) |> Enum.reduce(HashDict.new, fn [id, img, body], dict ->
+      |> Regex.scan(thread.body) |> Enum.reduce(HashDict.new, fn [_, id, img, body], dict ->
         if img == "" do
           Dict.put(dict, id, { nil, body })
         else
@@ -119,11 +121,20 @@ defmodule Wizardchan do
     posts    = Dict.update(posts, thread_id, fn { _, body } -> { img, body } end)
 
     Enum.to_list(posts) |> Enum.sort(fn { a, _ }, { b, _ } ->
-        binary_to_integer(a) < binary_to_integer(b)
+      binary_to_integer(a) < binary_to_integer(b)
     end)
   end
 
   defp unescape(body) do
-    body |> String.replace("<br/><br/>", "\r\n\r\n\r\n")
+    body = body
+      |> String.replace(%B{<br/>}, "\r\n")
+      |> String.replace(%B{&gt;}, ">")
+      |> String.replace(%B{&ndash;}, "–")
+      |> String.replace(%B{<strong>}, "*")
+      |> String.replace(%B{</strong>}, "*")
+
+    body = Regex.replace(%r{<span class="quote">(.*?)</span>}, body, "\\1")
+    body = Regex.replace(%r{<span class="spoiler">(.*?)</span>}, body, "{ \\1 }")
+    body = Regex.replace(%r{<a .*?>(.*?)</a>}, body, "\\1")
   end
 end

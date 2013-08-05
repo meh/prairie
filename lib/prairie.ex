@@ -15,7 +15,7 @@ defmodule Prairie do
     server = Socket.TCP.listen!(port, [backlog: backlog])
 
     Enum.each 0 .. acceptors, fn _ ->
-      Process.spawn_link __MODULE__, :acceptor, [Process.self, server, what]
+      Process.spawn_link __MODULE__, :acceptor, [Process.self, server, what, options]
     end
 
     monitor(debug)
@@ -29,7 +29,7 @@ defmodule Prairie do
       { :EXIT, _pid, :normal } ->
         nil
 
-      { :EXIT, pid, reason } ->
+      { :EXIT, _pid, reason } ->
         if debug do
           IO.inspect reason
         end
@@ -39,77 +39,61 @@ defmodule Prairie do
   end
 
   @doc false
-  def acceptor(monitor, socket, what) do
+  def acceptor(monitor, socket, what, options) do
     client  = socket.accept!(automatic: false)
-    process = Process.spawn __MODULE__, :handle, [client, what]
+    process = Process.spawn __MODULE__, :handle, [client, what, options]
 
     client.process(process)
     monitor <- { :connected, client, process }
 
-    acceptor(monitor, socket, what)
+    acceptor(monitor, socket, what, options)
   end
 
   @doc false
-  def handle(socket, what) do
+  def handle(socket, what, options) when is_atom(what) do
+    handle(socket, &what.handle/2, options)
+  end
+
+  def handle(socket, what, options) do
     socket.packet(:line)
 
-    case String.rstrip(socket.recv!) do
-      line when line == "" or line == "\t$" or line == "/" ->
-        what.list([]) |> normalize(what)
+    case socket.recv! |> String.rstrip |> String.split("\t") |> Enum.first do
+      << code :: utf8, rest :: binary >> when code in ?0 .. ?Z ->
+        type     = type_for(code)
+        selector = rest
 
-      << type :: utf8, rest :: binary >> when type == ?1 ->
-        if rest |> String.contains?("\t") do
-          [resource, extra] = rest |> String.split("\t")
-        else
-          resource = rest
-          extra    = nil
-        end
+      "" ->
+        selector = nil
+        type     = nil
 
-        what.list(resource, extra: extra) |> normalize(what)
+      line ->
+        selector = line
+        type     = nil
+    end
 
-      << type :: utf8, rest :: binary >> when type in ?0 .. ?9 or type in [?+, ?T, ?g, ?I] ->
-        if rest |> String.contains?("\t") do
-          [resource, extra] = rest |> String.split("\t")
-        else
-          resource = rest
-          extra    = nil
-        end
-
-        what.fetch(rest, type: type_for(type), extra: extra)
-
-      resource ->
-        if resource |> String.contains?("\t") do
-          [resource, extra] = resource |> String.split("\t")
-        else
-          extra = nil
-        end
-
-        if resource |> String.ends_with?("/") do
-          resource = resource |> String.rstrip(?/)
-
-          what.list(resource, extra: extra) |> normalize(what)
-        else
-          what.fetch(resource, extra: extra)
-        end
-    end |> respond(socket)
+    what.(selector, type) |> respond(socket, options)
 
     socket.shutdown
     socket.close
   end
 
-  defp respond(response, socket) when is_list(response) do
-    Enum.each response, fn { type, title, selector, { host, port } } ->
+  defp respond([], socket, _) do
+    socket.send! ".\r\n"
+  end
+
+  defp respond(response, socket, options) when is_list(response) do
+    Enum.each normalize(response, options), fn { type, title, selector, { host, port } } ->
       socket.send! [type_for(type),
         title,                 ?\t,
         selector,              ?\t,
         host,                  ?\t,
-        integer_to_list(port), ?\r, ?\n ]
+        integer_to_list(port), ?\r, ?\n]
     end
 
     socket.send! ".\r\n"
   end
 
-  defp respond({ :file, path }, socket) do
+  defp respond({ :file, path }, socket, _) do
     if File.exists?(path) do
       Enum.each File.stream!(path), fn
         "." <> rest ->
@@ -125,7 +109,7 @@ defmodule Prairie do
     socket.send! "\r\n.\r\n"
   end
 
-  defp respond({ type, path }, socket) when type in [:binary, :image, :gif, :audio] do
+  defp respond({ type, path }, socket, _) when type in [:binary, :image, :gif, :audio] do
     if File.exists?(path) do
       :file.sendfile(path, socket.to_port)
     else
@@ -133,14 +117,20 @@ defmodule Prairie do
     end
   end
 
-  defp normalize(list, what) do
-    Enum.map list, fn
-      { _type, _title, _selector, { _host, _port } } = listing ->
-        listing
+  defp normalize(list, options) when is_list(list) do
+    Enum.map list, &normalize(&1, options)
+  end
 
-      { type, title, selector } ->
-        { type, title, selector, what.server }
-    end
+  defp normalize({ _type, _title, _selector, { _host, _port } } = desc, _) do
+    desc
+  end
+
+  defp normalize({ type, title, selector }, options) do
+    { type, title, selector, { options[:domain], options[:port] } }
+  end
+
+  defp normalize(information, _) when is_binary(information) do
+    { :information, information, "", { "error.host", 1 } }
   end
 
   @types [ { ?0, :file },
@@ -159,7 +149,10 @@ defmodule Prairie do
            { ?I, :image },
            { ?i, :information },
            { ?s, :audio },
-           { ?h, :html } ]
+           { ?h, :html },
+           { ?:, :picture },
+           { ?;, :movie },
+           { ?<, :sound } ]
 
   Enum.each @types, fn { code, name } ->
     def type_for(unquote(code)), do: unquote(name)

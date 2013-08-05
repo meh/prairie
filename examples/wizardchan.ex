@@ -48,10 +48,6 @@ defmodule Wizardchan do
     Prairie.open(__MODULE__, options)
   end
 
-  def server do
-    { "localhost", 8080 }
-  end
-
   @host "http://wizardchan.org"
   @boards [
     { :wiz,  "General" },
@@ -60,35 +56,35 @@ defmodule Wizardchan do
     { :meta, "Meta" },
     { :b,    "Random" } ]
 
-  def list(_) do
+  def handle(selector, _) when selector == "/" or selector == nil do
     Enum.map @boards, fn { name, description } ->
       { :directory, "#{description} - /#{name}", "1/#{name}" }
     end
   end
 
   Enum.each @boards, fn { name, _ } ->
-    def :list, quote(do: ["/" <> unquote(to_binary(name)), _]), [], do: (quote do
-      catalog_for(unquote(name)) |> Enum.map fn { path, summary } ->
+    def :handle, quote(do: ["/" <> unquote(to_binary(name)), :directory]), [], do: (quote do
+      catalog_for(unquote(name)) |> Enum.map(fn { path, summary } ->
         [_, id] = Regex.run(%r/(\d+).html/, path)
 
-        { :directory, "#{unquote(name)}/#{id}", "1/#{unquote(name)}/#{id}" }
-      end
+        [{ :directory, "#{id}", "1/#{unquote(name)}/#{id}" }, "", format(summary), ""]
+      end) |> List.flatten
     end)
 
-    def :list, quote(do: ["/" <> unquote(to_binary(name)) <> "/" <> id, _]), [], do: (quote do
-      thread_for(unquote(name), id) |> Enum.map(fn { post_id, { img, _ } } ->
-        pages = [{ :file, "/#{unquote(name)}/#{id}/#{post_id}", "0/#{unquote(name)}/#{id}/#{post_id}" }]
-
-        if img do
-          pages = [{ :image, "/#{unquote(name)}/#{id}/#{post_id}", "I/#{unquote(name)}/#{id}/#{post_id}" } | pages]
+    def :handle, quote(do: ["/" <> unquote(to_binary(name)) <> "/" <> id, :directory]), [], do: (quote do
+      thread_for(unquote(name), id) |> Enum.map(fn { post_id, { img, body } } ->
+        header = if img do
+          { :image, "#{post_id}", "I/#{unquote(name)}/#{id}/#{post_id}" }
+        else
+          { :file, "#{post_id}", "0/#{unquote(name)}/#{id}/#{post_id}" }
         end
 
-        pages
+        [header, "", format(body, unquote(name), id), ""]
       end) |> List.flatten
     end)
   end
 
-  def fetch(resource, [{ :type, :file } | _]) do
+  def handle(resource, :file) do
     [_, board, thread_id, post_id] = String.split(resource, "/")
 
     { _, body } = thread_for(board, thread_id)[post_id]
@@ -96,7 +92,7 @@ defmodule Wizardchan do
     { :file, unescape(body) }
   end
 
-  def fetch(resource, [{ :type, :image } | _]) do
+  def handle(resource, :image) do
     [_, board, thread_id, post_id] = String.split(resource, "/")
 
     { image, _ } = thread_for(board, thread_id)[post_id]
@@ -106,7 +102,8 @@ defmodule Wizardchan do
 
   defp catalog_for(board) do
     catalog = HTTP.get!("#{@host}/#{board}/catalog.html")
-    threads = %r{<div class="thread"><a href="(.*?)">.*?</a>.*?</strong><br/>(.*?)</span>}
+
+    %r{<div class="thread"><a href="(.*?)">.*?</a>.*?</strong><br/>(.*?)</span>}
       |> Regex.scan(catalog.body) |> Enum.map(fn [_, path, summary] ->
         { path, summary }
       end)
@@ -138,12 +135,39 @@ defmodule Wizardchan do
     body = body
       |> String.replace(%B{<br/>}, "\r\n")
       |> String.replace(%B{&gt;}, ">")
+      |> String.replace(%B{&lt;}, ">")
       |> String.replace(%B{&ndash;}, "–")
+      |> String.replace(%B{&hellip;}, "…")
       |> String.replace(%B{<strong>}, "*")
       |> String.replace(%B{</strong>}, "*")
 
     body = Regex.replace(%r{<span class="quote">(.*?)</span>}, body, "\\1")
     body = Regex.replace(%r{<span class="spoiler">(.*?)</span>}, body, "{ \\1 }")
     body = Regex.replace(%r{<a .*?>(.*?)</a>}, body, "\\1")
+  end
+
+  defp format(content) do
+    unescape(content) |> String.split(%r/\r?\n/) |> Enum.map(fn line ->
+      line |> String.replace("\t", "    ") |> split_every(58)
+    end) |> List.flatten
+
+  end
+
+  defp format(content, board, thread_id) do
+    unescape(content) |> String.split(%r/\r?\n/) |> Enum.map(fn
+      ">>" <> post_id ->
+        { :file, ">>#{post_id}", "0/#{board}/#{thread_id}/#{post_id}" }
+
+      line ->
+        line |> String.replace("\t", "    ") |> split_every(58)
+    end) |> List.flatten
+  end
+
+  defp split_every(nil, _), do: []
+  defp split_every("", _),  do: [""]
+
+  defp split_every(string, length) do
+    [ String.slice(string, 0, length) |
+      String.slice(string, length, String.length(string) - length) |> split_every(length) ]
   end
 end

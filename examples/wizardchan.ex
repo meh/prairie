@@ -141,9 +141,9 @@ defmodule Wizardchan do
       |> String.replace(%B{<strong>}, "*")
       |> String.replace(%B{</strong>}, "*")
 
-    body = Regex.replace(%r{<span class="quote">(.*?)</span>}, body, "\\1")
-    body = Regex.replace(%r{<span class="spoiler">(.*?)</span>}, body, "{ \\1 }")
-    body = Regex.replace(%r{<a .*?>(.*?)</a>}, body, "\\1")
+    body = Regex.replace(%r{<span class="quote">(.*?)</span>}ms, body, "\\1")
+    body = Regex.replace(%r{<span class="spoiler">(.*?)</span>}ms, body, "{ \\1 }")
+    body = Regex.replace(%r{<a .*?>(.*?)</a>}ms, body, "\\1")
   end
 
   defp format(content) do

@@ -126,7 +126,7 @@ defmodule Prairie do
   end
 
   defp normalize({ type, title, selector }, options) do
-    { type, title, selector, { options[:domain], options[:port] } }
+    { type, title, selector, { options[:domain], options[:port] || 70 } }
   end
 
   defp normalize(information, _) when is_binary(information) do

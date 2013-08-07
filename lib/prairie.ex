@@ -7,7 +7,10 @@ defmodule Prairie do
   def monitor(what, options) do
     Process.flag(:trap_exit, true)
 
-    port      = Keyword.get(options, :port, 70)
+    options = Keyword.put_new(options, :host, [])
+    options = Keyword.put_new(options, :port, 70)
+
+    port      = Keyword.get(options, :port)
     debug     = Keyword.get(options, :debug, false)
     backlog   = Keyword.get(options, :backlog, 128)
     acceptors = Keyword.get(options, :acceptors, 5)
@@ -126,7 +129,8 @@ defmodule Prairie do
   end
 
   defp normalize({ type, title, selector }, options) do
-    { type, title, selector, { options[:domain], options[:port] || 70 } }
+    { type, title, selector, { options[:host][:domain] || "localhost",
+                               options[:host][:port] || options[:port] } }
   end
 
   defp normalize(information, _) when is_binary(information) do

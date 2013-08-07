@@ -140,27 +140,36 @@ defmodule Wizardchan do
       |> String.replace(%B{&hellip;}, "…")
       |> String.replace(%B{<strong>}, "*")
       |> String.replace(%B{</strong>}, "*")
-
-    body = Regex.replace(%r{<span class="quote">(.*?)</span>}ms, body, "\\1")
-    body = Regex.replace(%r{<span class="spoiler">(.*?)</span>}ms, body, "{ \\1 }")
-    body = Regex.replace(%r{<a .*?>(.*?)</a>}ms, body, "\\1")
+      |> String.replace(%B{<em>}, "_")
+      |> String.replace(%B{</em>}, "_")
+      |> String.replace(%r{<span class="quote">(.*?)</span>}ms, "\\1")
+      |> String.replace(%r{<span class="spoiler">(.*?)</span>}ms, "{ \\1 }")
+      |> String.replace(%r{<a .*?>(.*?)</a>}ms, "\\1")
   end
 
   defp format(content) do
-    unescape(content) |> String.split(%r/\r?\n/) |> Enum.map(fn line ->
-      line |> String.replace("\t", "    ") |> split_every(58)
-    end) |> List.flatten
-
+    unescape(content) |> String.split(%r/\r?\n/) |> Enum.map(&split(&1))
+      |> List.flatten
   end
 
-  defp format(content, board, thread_id) do
+  defp format(content, board // nil, thread_id // nil) do
     unescape(content) |> String.split(%r/\r?\n/) |> Enum.map(fn
       ">>" <> post_id ->
         { :file, ">>#{post_id}", "0/#{board}/#{thread_id}/#{post_id}" }
 
       line ->
-        line |> String.replace("\t", "    ") |> split_every(58)
+        split(line)
     end) |> List.flatten
+  end
+
+  defp split(line) do
+    line = line |> String.replace(%r/\s+/, " ")
+
+    if line =~ %r/\s/ do
+      split_words(line, 58)
+    else
+     split_every(line, 58)
+    end
   end
 
   defp split_every(nil, _), do: []
@@ -169,5 +178,20 @@ defmodule Wizardchan do
   defp split_every(string, length) do
     [ String.slice(string, 0, length) |
       String.slice(string, length, String.length(string) - length) |> split_every(length) ]
+  end
+
+  def split_words(nil, _), do: []
+  def split_words("", _), do: [""]
+
+  def split_words(string, length) do
+    string      = string |> String.replace(%r/^\s*/, "")
+    line        = String.slice(string, 0, length) |> String.replace(%r/\s*(\w+)?$/, "")
+    line_length = String.length(line)
+
+    if line_length == 0 do
+      [string]
+    else
+      [line | split_words(String.slice(string, line_length, String.length(string) - line_length), length)]
+    end
   end
 end

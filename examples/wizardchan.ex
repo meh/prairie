@@ -286,6 +286,7 @@ defmodule Wizardchan do
          |> String.replace(%B{</em>}, "_")
          |> String.replace(%r{<span class="quote">(.*?)</span>}ms, "\\1")
          |> String.replace(%r{<span class="spoiler">(.*?)</span>}ms, "{ \\1 }")
+         |> String.replace(%r{<span class="heading">(.*?)</span>}ms, "## \\1")
          |> String.replace(%r{<a .*?>(.*?)</a>}ms, "\\1")
   end
 

@@ -66,7 +66,7 @@ defmodule Prairie do
         selector = rest
 
       "" ->
-        selector = nil
+        selector = "/"
         type     = nil
 
       line ->

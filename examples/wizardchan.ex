@@ -50,11 +50,13 @@ defmodule Wizardchan do
 
   @host "http://wizardchan.org"
   @boards [
-    { :wiz,  "General   " },
-    { :v9k,  "Virgin9000" },
-    { :hob,  "Hobbies   " },
-    { :meta, "Meta      " },
-    { :b,    "Random    " } ]
+    { :wiz,  "General         " },
+    { :v9k,  "Virgin9000      " },
+    { :hob,  "Hobbies         " },
+    { :meta, "Meta            " },
+    { :b,    "Random          " },
+    { :stem, "STEM            " },
+    { :self, "Self-improvement" } ]
 
   @faq %B"""
   What do some of the terms on this website mean?

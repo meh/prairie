@@ -15,7 +15,7 @@ defmodule Prairie do
     backlog   = Keyword.get(options, :backlog, 128)
     acceptors = Keyword.get(options, :acceptors, 5)
 
-    server = Socket.TCP.listen!(port, [backlog: backlog])
+    server = Socket.TCP.listen!(port, backlog: backlog)
 
     Enum.each 0 .. acceptors, fn _ ->
       Process.spawn_link __MODULE__, :acceptor, [Process.self, server, what, options]
@@ -43,10 +43,10 @@ defmodule Prairie do
 
   @doc false
   def acceptor(monitor, socket, what, options) do
-    client  = socket.accept!(automatic: false)
+    client  = socket |> Socket.TCP.accept!(automatic: false)
     process = Process.spawn __MODULE__, :handle, [client, what, options]
 
-    client.process(process)
+    client |> Socket.TCP.process(process)
     monitor <- { :connected, client, process }
 
     acceptor(monitor, socket, what, options)
@@ -58,9 +58,9 @@ defmodule Prairie do
   end
 
   def handle(socket, what, options) do
-    socket.packet(:line)
+    socket |> Socket.packet! :line
 
-    case socket.recv! |> String.rstrip |> String.split("\t") |> Enum.first do
+    case socket |> Socket.Stream.recv! |> String.rstrip |> String.split("\t") |> Enum.first do
       << code :: utf8, rest :: binary >> when code in ?0 .. ?Z ->
         type     = type_for(code)
         selector = rest
@@ -76,47 +76,47 @@ defmodule Prairie do
 
     what.(selector, type) |> respond(socket, options)
 
-    socket.shutdown
-    socket.close
+    socket |> Socket.Stream.shutdown
+    socket |> Socket.close
   end
 
   defp respond([], socket, _) do
-    socket.send! ".\r\n"
+    socket |> Socket.Stream.send! ".\r\n"
   end
 
   defp respond(response, socket, options) when is_list(response) do
     Enum.each normalize(response, options), fn { type, title, selector, { host, port } } ->
-      socket.send! [type_for(type),
+      socket |> Socket.Stream.send! [type_for(type),
         title,                 ?\t,
         selector,              ?\t,
         host,                  ?\t,
         integer_to_list(port), ?\r, ?\n]
     end
 
-    socket.send! ".\r\n"
+    socket |> Socket.Stream.send! ".\r\n"
   end
 
   defp respond({ :file, path }, socket, _) do
     if File.exists?(path) do
       Enum.each File.stream!(path), fn
         "." <> rest ->
-          socket.send! ["..", rest]
+          socket |> Socket.Stream.send! ["..", rest]
 
         line ->
-          socket.send! line
+          socket |> Socket.Stream.send! line
       end
     else
-      socket.send!(path |> String.replace("\n.", "\n.."))
+      socket |> Socket.Stream.send!(path |> String.replace("\n.", "\n.."))
     end
 
-    socket.send! "\r\n.\r\n"
+    socket |> Socket.Stream.send! "\r\n.\r\n"
   end
 
   defp respond({ type, path }, socket, _) when type in [:binary, :image, :gif, :audio] do
     if File.exists?(path) do
-      :file.sendfile(path, socket.to_port)
+      socket |> Socket.Stream.file(path)
     else
-      socket.send!(path)
+      socket |> Socket.Stream.send!(path)
     end
   end
 
